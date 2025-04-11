@@ -6,3 +6,5 @@ scikit-learn
 xgboost
 matplotlib
 streamlit-folium
+network
+geopy
