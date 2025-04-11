@@ -5,3 +5,4 @@ folium
 scikit-learn
 xgboost
 matplotlib
+streamlit-folium
