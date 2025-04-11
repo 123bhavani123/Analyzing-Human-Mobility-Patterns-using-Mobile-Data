@@ -8,3 +8,4 @@ matplotlib
 streamlit-folium
 networkx
 geopandas
+geopy
