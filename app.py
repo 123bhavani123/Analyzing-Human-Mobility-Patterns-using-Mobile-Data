@@ -12,7 +12,7 @@ from utils.heatmap_utils import generate_heatmap
 from frequentlocation import detect_frequent_locations
 from transitiongraph import build_transition_graph
 from urban_rural import classify_urban_rural
-from xgboost_model import train_xgb_model, predict_future_clusters
+from xgboost_model import train_xgb_model, predict_future_clusters,load_model
 from epidemic_analysis import (
     detect_epidemic_risk_zones,
     suggest_transport_boosts,
@@ -123,95 +123,104 @@ if uploaded_file:
 
     # XGBoost Prediction of Future Clusters
     st.subheader("🔮 Predicted Future Clusters (XGBoost)")
-    model, le, features = train_xgb_model(df)
+    model, le, features = load_model()
+
+    if model is None:
+        st.warning("⚠️ Model not found. Training a new one...")
+        model, le, features = train_xgb_model(df)
+
     pred_df = predict_future_clusters(model, df, features)
 
     if not pred_df.empty:
         map_future = folium.Map(location=center, zoom_start=12)
         for _, row in pred_df.iterrows():
+            color_hex = f'#{(100 + row["predicted_cluster"] * 100):06x}'[:7]  # Ensure valid color
             folium.CircleMarker(
-                location=[row[lat_col], row[lon_col]],
-                radius=5,
-                color=f'#{hex(100 + row["predicted_cluster"] * 100)[2:]}',
-                fill=True,
-                fill_opacity=0.6,
-                popup=f"Predicted Cluster: {row['predicted_cluster']}"
-            ).add_to(map_future)
+            location=[row[lat_col], row[lon_col]],
+            radius=5,
+            color=color_hex,
+            fill=True,
+            fill_opacity=0.6,
+            popup=f"Predicted Cluster: {row['predicted_cluster']}"
+        ).add_to(map_future)
 
         st_folium(map_future, width=1000, height=500)
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        df['hour'] = df['timestamp'].dt.hour
-        df['dayofweek'] = df['timestamp'].dt.dayofweek
+    else:
+        st.warning("No predictions could be made.")
+    # Feature engineering for downstream use cases
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['hour'] = df['timestamp'].dt.hour
+    df['dayofweek'] = df['timestamp'].dt.dayofweek
 
 # Sidebar Task Selection
-        task = st.selectbox(
-        "Select Use Case",
-        [
+    task = st.selectbox(
+    "Select Use Case",
+    [
         "Epidemic Outbreak Detection",
         "Public Transport Optimization",
         "Urban Planning",
         "Tourism & Location Marketing",
         "Health Tech - Epidemiological Monitoring"
-        ]
-        )
+    ]
+)
 
 # Epidemic Detection
-        if task == "Epidemic Outbreak Detection":
-            alerts = detect_epidemic_risk_zones(df)
-            st.subheader("🌧️ Epidemic Alerts")
-            st.write(alerts)
+    if task == "Epidemic Outbreak Detection":
+        alerts = detect_epidemic_risk_zones(df)
+        st.subheader("🌧️ Epidemic Alerts")
+        st.write(alerts)
 
 # Public Transport Optimization
-        elif task == "Public Transport Optimization":
-            st.subheader("🚌 Optimized Transport Zones")
-            transport_suggestions = suggest_transport_boosts(df)
-            for cluster, suggestion in transport_suggestions.items():
-                st.markdown(f"**Cluster {cluster}**: {suggestion}")
+    elif task == "Public Transport Optimization":
+        st.subheader("🚌 Optimized Transport Zones")
+        transport_suggestions = suggest_transport_boosts(df)
+        for cluster, suggestion in transport_suggestions.items():
+            st.markdown(f"**Cluster {cluster}**: {suggestion}")
 
 # Urban Planning
-        elif task == "Urban Planning":
-            st.subheader("🏙️ Urban Cluster Zones")
-            cluster_df = identify_urban_clusters(df)
-            st.write(cluster_df)
+    elif task == "Urban Planning":
+        st.subheader("🏙️ Urban Cluster Zones")
+        cluster_df = identify_urban_clusters(df)
+        st.write(cluster_df)
 
     # Optional visualization
-            map_center = [df['latitude'].mean(), df['longitude'].mean()]
-            city_map = folium.Map(location=map_center, zoom_start=12)
-            marker_cluster = MarkerCluster().add_to(city_map)
-            for _, row in df.iterrows():
-                folium.Marker(
-                location=[row['latitude'], row['longitude']],
-                popup="Urban Activity",
-                icon=folium.Icon(color='blue', icon='info-sign')
-                ).add_to(marker_cluster)
-                st_folium(city_map, width=1000, height=500)
+        map_center = [df['latitude'].mean(), df['longitude'].mean()]
+        city_map = folium.Map(location=map_center, zoom_start=12)
+        marker_cluster = MarkerCluster().add_to(city_map)
+        for _, row in df.iterrows():
+            folium.Marker(
+            location=[row['latitude'], row['longitude']],
+            popup="Urban Activity",
+            icon=folium.Icon(color='blue', icon='info-sign')
+        ).add_to(marker_cluster)
+        st_folium(city_map, width=1000, height=500)
 
 # Tourism & Location Marketing
-        elif task == "Tourism & Location Marketing":
-            updated_df = get_tourist_hotspots(df)
-            st.subheader("🎯 Tourist Hotspots")
-            st.write(updated_df[['cluster', 'tourism_hotspot']].drop_duplicates())
-            map_center = [df['latitude'].mean(), df['longitude'].mean()]
-            tour_map = folium.Map(location=map_center, zoom_start=12)
-            for _, row in df.iterrows():
-                if row['tourism_hotspot'] == 'Yes':
-                    folium.CircleMarker(
-                    location=[row['latitude'], row['longitude']],
-                    radius=6,
-                    color='red',
-                    fill=True,
-                    fill_color='red',
-                    fill_opacity=0.6
-                ).add_to(tour_map)
-            st_folium(tour_map, width=1000, height=500)
+    elif task == "Tourism & Location Marketing":
+        updated_df = get_tourist_hotspots(df)
+        st.subheader("🎯 Tourist Hotspots")
+        st.write(updated_df[['cluster', 'tourism_hotspot']].drop_duplicates())
+
+        map_center = [df['latitude'].mean(), df['longitude'].mean()]
+        tour_map = folium.Map(location=map_center, zoom_start=12)
+        for _, row in df.iterrows():
+            if row.get('tourism_hotspot') == 'Yes':
+                folium.CircleMarker(
+                location=[row['latitude'], row['longitude']],
+                radius=6,
+                color='red',
+                fill=True,
+                fill_color='red',
+                fill_opacity=0.6
+            ).add_to(tour_map)
+        st_folium(tour_map, width=1000, height=500)
 
 # Health Monitoring
-        elif task == "Health Tech - Epidemiological Monitoring":
-            infected_clusters = df[df['epidemic_risk_zone'] == 'High Risk']['cluster'].unique().tolist() if 'epidemic_risk_zone' in df.columns else []
-            status_df = track_epidemiological_mobility(df, infected_clusters)
-            st.subheader("🌡️ Health Monitoring Dashboard")
-            st.write(status_df[['cluster', 'contact_with_infected']].drop_duplicates())
-        else:
-             st.warning("No predicted clusters found.")
+    elif task == "Health Tech - Epidemiological Monitoring":
+        infected_clusters = df[df.get('epidemic_risk_zone') == 'High Risk']['cluster'].unique().tolist() if 'epidemic_risk_zone' in df.columns else []
+        status_df = track_epidemiological_mobility(df, infected_clusters)
+        st.subheader("🌡️ Health Monitoring Dashboard")
+        st.write(status_df[['cluster', 'contact_with_infected']].drop_duplicates())
+
 else:
     st.warning("No predicted clusters found.")
